@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>2026 跨年纯净星空</title>
+    <style>
+        :root {
+            --white-glass: rgba(255, 255, 255, 0.12);
+            --pure-white: rgba(255, 255, 255, 0.9);
+            --soft-glow: rgba(255, 255, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'PingFang SC', 'Helvetica Neue', sans-serif;
+            width: 100vw;
+            height: 100vh;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+        }
+
+        #canvas-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            /* 动态背景渐变色 */
+            background: radial-gradient(circle at center, #0f0f1a 0%, #000000 100%);
+            z-index: 1;
+        }
+
+        /* 顶部倒计时 */
+        #header {
+            position: absolute;
+            top: 5vh;
+            width: 100%;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .countdown-title {
+            color: var(--pure-white);
+            font-size: 0.9rem;
+            letter-spacing: 0.4em;
+            text-shadow: 0 0 15px var(--soft-glow);
+            margin-bottom: 12px;
+            font-weight: 300;
+            opacity: 0.8;
+        }
+
+        #timer {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            color: #fff;
+        }
+
+        .time-block { display: flex; flex-direction: column; align-items: center; }
+        .time-value {
+            font-size: 2.2rem;
+            font-weight: 200;
+            background: linear-gradient(180deg, #fff 0%, #999 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-variant-numeric: tabular-nums;
+        }
+        .time-label { font-size: 0.5rem; color: #555; margin-top: 4px; letter-spacing: 1px; }
+
+        /* 上传按钮 */
+        #upload-btn {
+            position: absolute;
+            right: 25px;
+            bottom: 35px;
+            z-index: 20;
+            background: var(--white-glass);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: rgba(255,255,255,0.8);
+            padding: 12px 20px;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            backdrop-filter: blur(20px);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #upload-btn:hover { background: rgba(255, 255, 255, 0.2); color: #fff; transform: translateY(-2px); }
+
+        /* 底部提示 */
+        #footer {
+            position: absolute;
+            bottom: 40px;
+            left: 25px;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 0.7rem;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+
+        #center-wish {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 5;
+            pointer-events: none;
+            width: 100%;
+            text-align: center;
+        }
+        .wish-text {
+            color: #fff;
+            font-size: 2.8rem;
+            font-weight: 200;
+            letter-spacing: 0.6rem;
+            text-shadow: 0 0 40px rgba(255, 255, 255, 0.15);
+            opacity: 0.5;
+        }
+
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-wrapper">
+        <canvas id="main-canvas"></canvas>
+    </div>
+
+    <div id="header">
+        <div class="countdown-title">MOMENTS · 2026</div>
+        <div id="timer">
+            <div class="time-block"><span id="days" class="time-value">00</span><span class="time-label">DAYS</span></div>
+            <div class="time-block"><span id="hours" class="time-value">00</span><span class="time-label">HOURS</span></div>
+            <div class="time-block"><span id="mins" class="time-value">00</span><span class="time-label">MINS</span></div>
+            <div class="time-block"><span id="secs" class="time-value">00</span><span class="time-label">SECS</span></div>
+        </div>
+    </div>
+
+    <div id="center-wish">
+        <div class="wish-text">新年快乐</div>
+    </div>
+
+    <div id="footer">
+        Swipe to Spin · Tap to Celebrate
+    </div>
+
+    <label id="upload-btn" for="file-input">添加回忆照片</label>
+    <input type="file" id="file-input" accept="image/*" multiple>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const CONFIG = {
+            targetDate: new Date('2026-01-01T00:00:00').getTime(),
+            fireworkColors: [0xffffff, 0xbbddff, 0xddddee, 0xaaaaaa],
+            photoRadius: 38,
+            photoScale: 12
+        };
+
+        let scene, camera, renderer, particles = [], photoGroup, starSystem, shootingStars = [];
+        let isDragging = false, lastMouseX = 0, targetRotationY = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 65;
+
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: document.getElementById('main-canvas'), 
+                antialias: true, 
+                alpha: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            photoGroup = new THREE.Group();
+            scene.add(photoGroup);
+
+            initDynamicStarfield();
+            animate();
+            updateCountdown();
+            setInterval(updateCountdown, 1000);
+        }
+
+        // 初始化动态星空系统
+        function initDynamicStarfield() {
+            const count = 3000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            const sizes = new Float32Array(count);
+            const opacities = new Float32Array(count);
+
+            for (let i = 0; i < count; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 800;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 800;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 500 - 100;
+                sizes[i] = Math.random() * 2;
+                opacities[i] = Math.random();
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            
+            const material = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.4,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+
+            starSystem = new THREE.Points(geometry, material);
+            scene.add(starSystem);
+
+            // 定时生成流星
+            setInterval(createShootingStar, 2000);
+        }
+
+        function createShootingStar() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(2 * 3); // 线段两端
+            const x = (Math.random() - 0.5) * 400;
+            const y = Math.random() * 200 + 50;
+            const z = -Math.random() * 200;
+            
+            positions[0] = x; positions[1] = y; positions[2] = z;
+            positions[3] = x - 20; positions[4] = y - 20; positions[5] = z;
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.8 
+            });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            shootingStars.push({ mesh: line, life: 1.0, vx: -2, vy: -2 });
+        }
+
+        function createPhotoMesh(texture) {
+            const aspect = texture.image ? texture.image.width / texture.image.height : 1;
+            const geometry = new THREE.PlaneGeometry(CONFIG.photoScale * aspect, CONFIG.photoScale);
+            const material = new THREE.MeshBasicMaterial({ 
+                map: texture, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.9
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // 白色玻璃边框
+            const frame = new THREE.Mesh(
+                new THREE.PlaneGeometry(CONFIG.photoScale * aspect + 0.6, CONFIG.photoScale + 0.6),
+                new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, transparent: true, opacity: 0.25 })
+            );
+            frame.position.z = -0.1;
+            mesh.add(frame);
+            return mesh;
+        }
+
+        function addPhotoToWall(url) {
+            new THREE.TextureLoader().load(url, (texture) => {
+                const mesh = createPhotoMesh(texture);
+                const count = photoGroup.children.length;
+                const angle = count * 0.9; 
+                mesh.position.set(Math.cos(angle) * CONFIG.photoRadius, (Math.random() - 0.5) * 15, Math.sin(angle) * CONFIG.photoRadius);
+                mesh.lookAt(0, 0, 0);
+                photoGroup.add(mesh);
+            });
+        }
+
+        class Firework {
+            constructor(x, y, color) {
+                this.geometry = new THREE.BufferGeometry();
+                const pos = [], vels = [];
+                for (let i = 0; i < 100; i++) {
+                    pos.push(x, y, 0);
+                    const t = Math.random() * Math.PI * 2, p = Math.random() * Math.PI;
+                    const s = Math.random() * 0.4 + 0.1;
+                    vels.push(Math.sin(p)*Math.cos(t)*s, Math.sin(p)*Math.sin(t)*s, Math.cos(p)*s);
+                }
+                this.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                this.vels = vels;
+                this.material = new THREE.PointsMaterial({ color, size: 0.15, transparent: true, blending: THREE.AdditiveBlending });
+                this.points = new THREE.Points(this.geometry, this.material);
+                this.life = 1.0;
+                scene.add(this.points);
+            }
+            update() {
+                const p = this.points.geometry.attributes.position.array;
+                for (let i = 0; i < 100; i++) {
+                    p[i*3]+=this.vels[i*3]; p[i*3+1]+=this.vels[i*3+1]; p[i*3+2]+=this.vels[i*3+2];
+                    this.vels[i*3+1]-=0.005;
+                }
+                this.points.geometry.attributes.position.needsUpdate = true;
+                this.life -= 0.015;
+                this.material.opacity = this.life;
+                if(this.life <= 0) { scene.remove(this.points); return false; }
+                return true;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+
+            // 1. 烟花更新
+            particles = particles.filter(p => p.update());
+
+            // 2. 照片墙平滑旋转
+            if(!isDragging) { targetRotationY += 0.002; }
+            photoGroup.rotation.y += (targetRotationY - photoGroup.rotation.y) * 0.08;
+
+            // 3. 星空微动与呼吸
+            if (starSystem) {
+                starSystem.rotation.y = Math.sin(time * 0.1) * 0.05;
+                starSystem.rotation.x = Math.cos(time * 0.1) * 0.05;
+                starSystem.material.opacity = 0.5 + Math.sin(time * 2) * 0.3; // 呼吸闪烁
+            }
+
+            // 4. 流星更新
+            for (let i = shootingStars.length - 1; i >= 0; i--) {
+                const s = shootingStars[i];
+                s.mesh.position.x += s.vx;
+                s.mesh.position.y += s.vy;
+                s.life -= 0.02;
+                s.mesh.material.opacity = s.life;
+                if (s.life <= 0) {
+                    scene.remove(s.mesh);
+                    shootingStars.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // 倒计时逻辑
+        function updateCountdown() {
+            const diff = CONFIG.targetDate - Date.now();
+            if (diff <= 0) return;
+            const d = Math.floor(diff / 86400000), h = Math.floor((diff % 86400000) / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+            document.getElementById('days').innerText = String(d).padStart(2, '0');
+            document.getElementById('hours').innerText = String(h).padStart(2, '0');
+            document.getElementById('mins').innerText = String(m).padStart(2, '0');
+            document.getElementById('secs').innerText = String(s).padStart(2, '0');
+        }
+
+        // 交互处理
+        const handleStart = (x) => { isDragging = true; lastMouseX = x; };
+        const handleMove = (x) => {
+            if (!isDragging) return;
+            targetRotationY += (x - lastMouseX) * 0.01;
+            lastMouseX = x;
+        };
+        const handleEnd = () => { isDragging = false; };
+
+        window.addEventListener('mousedown', (e) => handleStart(e.clientX));
+        window.addEventListener('mousemove', (e) => handleMove(e.clientX));
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchstart', (e) => handleStart(e.touches[0].clientX));
+        window.addEventListener('touchmove', (e) => handleMove(e.touches[0].clientX));
+        window.addEventListener('touchend', handleEnd);
+
+        let clickTime = 0;
+        window.addEventListener('pointerdown', () => clickTime = Date.now());
+        window.addEventListener('pointerup', (e) => {
+            if(Date.now() - clickTime < 200) {
+                const color = CONFIG.fireworkColors[Math.floor(Math.random()*CONFIG.fireworkColors.length)];
+                particles.push(new Firework((e.clientX/window.innerWidth)*100-50, -(e.clientY/window.innerHeight)*100+50, color));
+            }
+        });
+
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            for (let file of e.target.files) addPhotoToWall(URL.createObjectURL(file));
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = init;
+    </script>
+</body>
+</html>
